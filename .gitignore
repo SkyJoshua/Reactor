@@ -1,0 +1,4 @@
+bin/
+obj/
+Reactor.sln
+.env
