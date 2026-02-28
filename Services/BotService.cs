@@ -30,6 +30,8 @@ namespace Reactor.Services
 
             //Initialize the Database
             await DatabaseService.InitializeAsync();
+            await ReactionRoleService.LoadAllAsync();
+            Console.WriteLine($"Loaded {ReactionRoleService.Messages.Count} reaction messages into memory.");
 
             //Initialize the Planets
             await PlanetService.InitializePlanetsAsync(client, channelCache, initializedPlanets);
