@@ -9,9 +9,9 @@ public static class HelpComamnd
         string helpMessage = $@"**Reactor Commands**:
         - `{prefix}help` - Shows this list.";
 
-    if (channelCache.TryGetValue(channelId, out var channel))
-    {
-        await channel.SendMessageAsync($"{memberPing}\n{helpMessage}");
-    }
+        if (channelCache.TryGetValue(channelId, out var channel))
+        {
+            await channel.SendMessageAsync($"{memberPing}\n{helpMessage}");
+        }
     }
 }

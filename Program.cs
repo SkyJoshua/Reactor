@@ -106,6 +106,10 @@ namespace Reactor
                 case "help":
                     await HelpComamnd.Execute(_channelCache, channelId, _prefix, memberPing);
                     break;
+                
+                case "source":
+                    await SourceComamnd.Execute(_channelCache, channelId, memberPing);
+                    break;
             }
         }
 
