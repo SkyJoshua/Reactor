@@ -2,3 +2,4 @@ bin/
 obj/
 Reactor.sln
 .env
+reactor.db
