@@ -2,7 +2,7 @@ using Valour.Sdk.Models;
 
 namespace Reactor.Commands;
 
-public static class SourceComamnd
+public static class SourceCommand
 {
     public static async Task Execute(Dictionary<long, Channel> channelCache, long channelId, string memberPing)
     {
