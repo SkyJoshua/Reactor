@@ -8,6 +8,7 @@ namespace Reactor.Services
 
         public static async Task InitializeAsync()
         {
+            //Connection frfr
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
 

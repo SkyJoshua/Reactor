@@ -9,6 +9,7 @@ public static class HelpCommand
         string helpMessage = $@"**Reactor Commands**:
         - `{prefix}help` - Shows this list.
         - `{prefix}source` - Shows my source code!
+        - `{prefix}create` - Creates the Reaction Message.
         ";
 
         if (channelCache.TryGetValue(channelId, out var channel))
