@@ -13,7 +13,7 @@ namespace Reactor.Services
         public static Dictionary<long, ReactionMessage> Messages { get; private set; } = new(); 
 
         //Load all messages and reaction role mappings
-        public static async Task LoadAllAsync()
+        public static async Task LoadAllAsync(ValourClient client)
         {
             Messages.Clear();
 
@@ -80,95 +80,186 @@ namespace Reactor.Services
             msg.Reactions[emoji] = roleId;
         }
 
-        public static async Task HandleReactionAddedAsync(
+        public static async Task RemoveReactionAsync(long messageId, string emoji)
+        {
+            if (!Messages.TryGetValue(messageId, out var msg))
+                return;
+
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM ReactionRoles WHERE ReactionMessageId = @msgId AND Emoji = @emoji";
+            cmd.Parameters.AddWithValue("@msgId", msg.Id);
+            cmd.Parameters.AddWithValue("@emoji", emoji);
+            await cmd.ExecuteNonQueryAsync();
+
+            msg.Reactions.Remove(emoji);
+            Console.WriteLine($"Removed reaction {emoji} from message {messageId}.");
+        }
+
+        private static readonly HashSet<long> _subscribedMessages = new();
+
+        public static void SubscribeToMessageReactions(
+            ValourClient client,
             Dictionary<long, Channel> channelCache,
-            Message message)
+            Message syncedMessage)
+        {
+            if (!_subscribedMessages.Add(syncedMessage.Id))
+            {
+                Console.WriteLine($"Already subscribed to message {syncedMessage.Id}, skipping.");
+                return;
+            }
+
+            Action<MessageReaction> addhandler = (reaction) =>
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        Console.WriteLine($"Reaction added: {reaction.Emoji} by {reaction.AuthorUserId}");
+                        await HandleReactionAddedAsync(client, channelCache, syncedMessage, reaction);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error in addhandler: {ex.Message}");
+                        Console.WriteLine(ex.StackTrace);
+                    }
+                });
+            };
+
+            Action<MessageReaction> removehandler = (reaction) =>
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        Console.WriteLine($"Reaction removed: {reaction.Emoji} by {reaction.AuthorUserId}");
+                        await HandleReactionRemovedAsync(client, channelCache, syncedMessage, reaction);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error in removehandler: {ex.Message}");
+                        Console.WriteLine(ex.StackTrace);
+                    }
+                });
+            };
+
+            syncedMessage.ReactionAdded += addhandler;
+            syncedMessage.ReactionRemoved += removehandler;
+        }
+
+        public static void ResetSubscription(long messageId)
+        {
+            _subscribedMessages.Remove(messageId);
+        }
+
+        public static async Task HandleReactionAddedAsync(
+            ValourClient client,
+            Dictionary<long, Channel> channelCache,
+            Message message,
+            MessageReaction reaction)
         {
             if (!Messages.TryGetValue(message.Id, out var cachedMsg))
                 return;
 
             if (!channelCache.TryGetValue(cachedMsg.ChannelId, out var channel))
                 return;
-            
-            foreach (var kvp in message.Reactions)
+
+            if (!cachedMsg.Reactions.TryGetValue(reaction.Emoji, out var roleId))
+                return;
+
+            var role = channel.Planet.Roles.FirstOrDefault(r => r.Id == roleId);
+            string roleName = role != null ? role.Name : $"Role {roleId}";
+
+            var member = await channel.Planet.FetchMemberByUserAsync(reaction.AuthorUserId);
+            if (member == null) return;
+
+            // Check if member already has the role
+            if (member.Roles.Any(r => r.Id == roleId))
             {
-                string emoji = kvp.Emoji;
-                if (!cachedMsg.Reactions.TryGetValue(emoji, out var roleId))
-                    continue;
+                Console.WriteLine($"User {reaction.AuthorUserId} already has role {roleId}, skipping.");
+                return;
+            }
 
-                //Fetch role name
-                var role = channel.Planet.Roles.FirstOrDefault(r => r.Id == roleId);
-                string roleName = role != null ? role.Name : $"Role {roleId}";
+            await member.AddRoleAsync(roleId);
 
-                //Fetch member
-                var member = await channel.Planet.FetchMemberAsync(kvp.AuthorUserId);
-                if (member == null) return;
-
-                //Apply role to user
-                await member.AddRoleAsync(roleId);
-
-                //Confirmation
-                var confirm = await channel.SendMessageAsync($"«@m-{member.Id}» has been given the role {roleName}");
+            var confirm = await channel.SendMessageAsync($"«@m-{member.Id}» has been added to the role {roleName}");
+            if (confirm.Success && confirm.Data != null)
+            {
                 await Task.Delay(cachedMsg.DeleteDelaySeconds * 1000);
-                await confirm.Data.DeleteAsync();
+                if (client.Cache.Messages.TryGet(confirm.Data.Id, out var cachedConfirm))
+                {
+                    await cachedConfirm.DeleteAsync();
+                } else
+                {
+                    Console.WriteLine($"Could not find confirmation message {confirm.Data.Id} in cache.");
+                }
             }
         }
 
-        // public static async Task HandleReactionAddedAsync(
-        //     ValourClient client,
-        //     Dictionary<long, Channel> channelCache,
-        //     MessageReaction reaction)
-        // {
-        //     if (!Messages.TryGetValue(reaction.MessageId, out var msg))
-        //         return;
+        public static async Task HandleReactionRemovedAsync(
+            ValourClient client,
+            Dictionary<long, Channel> channelCache,
+            Message message,
+            MessageReaction reaction)
+        {
+            if (!Messages.TryGetValue(message.Id, out var cachedMsg))
+                return;
 
-        //     if (!msg.Reactions.TryGetValue(reaction.Emoji, out var roleId))
-        //         return;
-            
-        //     if (!channelCache.TryGetValue(msg.ChannelId, out var channel))
-        //         return;
+            if (!channelCache.TryGetValue(cachedMsg.ChannelId, out var channel))
+                return;
 
-        //     var role = channel.Planet.Roles.FirstOrDefault(r => r.Id == roleId);
-        //     string roleName = role != null ? role.Name : $"Role {roleId}";
+            if (!cachedMsg.Reactions.TryGetValue(reaction.Emoji, out var roleId))
+                return;
 
-        //     //Fetch the member
-        //     var member = await channel.Planet.FetchMemberAsync(reaction.AuthorUserId);
-        //     if (member == null) return;
+            var role = channel.Planet.Roles.FirstOrDefault(r => r.Id == roleId);
+            string roleName = role != null ? role.Name : $"Role {roleId}";
 
-        //     //Add role
-        //     await member.AddRoleAsync(roleId);
+            var member = await channel.Planet.FetchMemberByUserAsync(reaction.AuthorUserId);
+            if (member == null) return;
 
-        //     //Confirmation
-        //     var confirm = await channel.SendMessageAsync($"«@m-{member.Id}» has been given the role {roleName}");
-        //     await Task.Delay(msg.DeleteDelaySeconds * 1000);
-        //     await confirm.Data.DeleteAsync();
-        // }
+            // Check if member actually has the role before removing
+            if (!member.Roles.Any(r => r.Id == roleId))
+            {
+                Console.WriteLine($"User {reaction.AuthorUserId} does not have role {roleId}, skipping.");
+                return;
+            }
 
-        // public static async Task HandleReactionRemovedAsync(
-        //     ValourClient client,
-        //     Dictionary<long, Channel> channelCache,
-        //     MessageReaction reaction)
-        // {
-        //     if (!Messages.TryGetValue(reaction.MessageId, out var msg))
-        //         return;
+            await member.RemoveRoleAsync(roleId);
 
-        //     if (!msg.Reactions.TryGetValue(reaction.Emoji, out var roleId))
-        //         return;
-            
-        //     if (!channelCache.TryGetValue(msg.ChannelId, out var channel))
-        //         return;
+            var confirm = await channel.SendMessageAsync($"«@m-{member.Id}» has been removed from the role {roleName}");
+            if (confirm.Success && confirm.Data != null)
+            {
+                await Task.Delay(cachedMsg.DeleteDelaySeconds * 1000);
+                if (client.Cache.Messages.TryGet(confirm.Data.Id, out var cachedConfirm))
+                {
+                    await cachedConfirm.DeleteAsync();
+                } else
+                {
+                    Console.WriteLine($"Could not find confirmation message {confirm.Data.Id} in cache.");
+                }
+            }
+        }
 
-        //     var role = channel.Planet.Roles.FirstOrDefault(r => r.Id == roleId);
-        //     string roleName = role != null ? role.Name : $"role {roleId}";
+        public static async Task RemoveMessageAsync(long messageId)
+        {
+            if (!Messages.TryGetValue(messageId, out var msg)) return;
 
-        //     var member = await channel.Planet.FetchMemberAsync(reaction.AuthorUserId);
-        //     if (member == null) return;
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
 
-        //     await member.RemoveRoleAsync(roleId);
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                DELETE FROM ReactionRoles WHERE ReactionMessageId = @id;
+                DELETE FROM ReactionMessages WHERE MessageId = @messageId;
+            ";
+            cmd.Parameters.AddWithValue("@id", msg.Id);
+            cmd.Parameters.AddWithValue("@messageId", messageId);
+            await cmd.ExecuteNonQueryAsync();
 
-        //     var confirm = await channel.SendMessageAsync($"«@m-{member.Id}» has been removed from the role {roleName}");
-        //     await Task.Delay(msg.DeleteDelaySeconds * 1000);
-        //     await confirm.Data.DeleteAsync();
-        // }
+            Messages.Remove(messageId);
+            Console.WriteLine($"Removed stale reaction message {messageId} from DB and memory.");
+        }
     }
 }

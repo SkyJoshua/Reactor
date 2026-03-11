@@ -7,13 +7,12 @@ namespace Reactor.Commands
     public static class AddCommand
     {
         public static async Task Execute(
+            ValourClient client,
             Dictionary<long, Channel> channelCache,
             long channelId,
             long messageId,
             string emoji,
-            long roleId,
-            ValourClient client,
-            Planet planet)
+            long roleId)
         {
             //Check if the current channel is in the cache (should never happen but you never know!)
             if (!channelCache.TryGetValue(channelId, out var channel))
@@ -40,11 +39,13 @@ namespace Reactor.Commands
                 return;
             }
 
-            // Add the emoji to the message
+            //Add the emoji to the message
             await message.AddReactionAsync(emoji);
 
             //Add reaction-role mapping to DB and Cache
             await ReactionRoleService.AddReactionAsync(messageId, emoji, roleId);
+
+            ReactionRoleService.SubscribeToMessageReactions(client, channelCache, message);
 
             await channel.SendMessageAsync($"Added reaction {emoji} -> role {roleId} for message {messageId}");
         }

@@ -1,6 +1,7 @@
 using Reactor.Commands;
 using Valour.Sdk.Client;
 using Valour.Sdk.Models;
+using Valour.Shared.Authorization;
 
 namespace Reactor.Services
 {
@@ -24,6 +25,8 @@ namespace Reactor.Services
             var member = await message.FetchAuthorMemberAsync();
             string memberPing = member != null ? $"«@m-{member.Id}»" : "";
 
+            bool hasPermission = await HasPermissionAsync(member, channelCache[channelId]);
+
             string withoutPrefix = content.Substring(prefix.Length);
 
             var parts = withoutPrefix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -44,6 +47,13 @@ namespace Reactor.Services
                     break;
                 
                 case "create":
+
+                    if (!hasPermission)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} You need Manage Roles or Full Control to use this command.");
+                        return;
+                    }
+
                     if (parts.Length < 2)
                     {
                         await channelCache[channelId].SendMessageAsync($"{memberPing} Usage: {prefix}create <default message text>");
@@ -57,10 +67,40 @@ namespace Reactor.Services
                     }
 
                     var messageText = string.Join(' ', parts[1..]);
-                    await CreateCommand.Execute(channelCache, channelId, messageText, message.PlanetId.Value);
+                    await CreateCommand.Execute(client, channelCache, channelId, messageText, message.PlanetId.Value);
+                    break;
+
+                case "delete":
+
+                    if (!hasPermission)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} You need Manage Roles or Full Control to use this command.");
+                        return;
+                    }
+
+                    if (parts.Length < 2)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} Usage: {prefix}delete <messageId>");
+                        return;
+                    }
+
+                    if (!long.TryParse(parts[1], out var deleteMsgId))
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} Invalid message ID.");
+                        return;
+                    }
+
+                    await DeleteCommand.Execute(client, channelCache, channelId, deleteMsgId);
                     break;
 
                 case "add":
+
+                    if (!hasPermission)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} You need Manage Roles or Full Control to use this command.");
+                        return;
+                    }
+
                     if (parts.Length < 4)
                     {
                         await channelCache[channelId].SendMessageAsync($"{memberPing} Usage: {prefix}add <messageId> <emoji> <roleId>");
@@ -81,9 +121,41 @@ namespace Reactor.Services
                         return;
                     }
 
-                    await AddCommand.Execute(channelCache, channelId, msgId, emoji, roleId, client, message.Planet);
+                    await AddCommand.Execute(client, channelCache, channelId, msgId, emoji, roleId);
+                    break;
+                
+                case "remove":
+
+                    if (!hasPermission)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} You need Manage Roles or Full Control to use this command.");
+                        return;
+                    }
+
+                    if (parts.Length < 3)
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} Usage: {prefix}remove <messageId> <emoji>");
+                        return;
+                    }
+
+                    if (!long.TryParse(parts[1], out var removeMsgId))
+                    {
+                        await channelCache[channelId].SendMessageAsync($"{memberPing} Invalid message ID.");
+                        return;
+                    }
+
+                    var removeEmoji = parts[2];
+                    await RemoveCommand.Execute(client, channelCache, channelId, removeMsgId, removeEmoji);
                     break;
             }
         }   
+
+        private static async Task<bool> HasPermissionAsync(PlanetMember member, Channel channel)
+        {
+            if (member == null) return false;
+            
+            return member.HasPermission(PlanetPermissions.FullControl) ||
+                member.HasPermission(PlanetPermissions.ManageRoles);
+        }
     }
 }

@@ -61,12 +61,6 @@ namespace Reactor.Commands
                 Reactions = new Dictionary<string, long>()
             };
 
-            //Subscribe events
-            // sentMessage.ReactionAdded += async () =>
-            // {
-            //     await ReactionRoleService.HandleReactionAddedAsync(channelCache, sentMessage);
-            // };
-
             Console.WriteLine($"Created reaction message {sentMessage.Id} in channel {channelId}");
         }
     }
