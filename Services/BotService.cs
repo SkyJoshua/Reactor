@@ -88,6 +88,8 @@ namespace Reactor.Services
                 }
             };
 
+            
+
             //Bot is active and ready
             Console.WriteLine("Bot ready and listening...");
         }
