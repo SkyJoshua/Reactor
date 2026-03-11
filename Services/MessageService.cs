@@ -25,7 +25,7 @@ namespace Reactor.Services
             var member = await message.FetchAuthorMemberAsync();
             string memberPing = member != null ? $"«@m-{member.Id}»" : "";
 
-            bool hasPermission = await HasPermissionAsync(member, channelCache[channelId]);
+            bool hasPermission = await HasPermissionAsync(member);
 
             string withoutPrefix = content.Substring(prefix.Length);
 
@@ -150,7 +150,7 @@ namespace Reactor.Services
             }
         }   
 
-        private static async Task<bool> HasPermissionAsync(PlanetMember member, Channel channel)
+        private static async Task<bool> HasPermissionAsync(PlanetMember member)
         {
             if (member == null) return false;
             
